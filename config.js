@@ -1,0 +1,4 @@
+window.KHATTI_CONFIG = {
+  SUPABASE_URL: "https://xrzqtzbmoejlsprduucw.supabase.co",
+  SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhyenF0emJtb2VqbHNwcmR1dWN3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE1NjM5MzQsImV4cCI6MjEwNzEzOTkzNH0.Krf9WVi3DWochJ7xP3mXdF6G9ndiOUfsJMiqKTpdn24"
+};
