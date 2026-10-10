@@ -125,13 +125,50 @@ function govPickView(p) {
   };
 }
 
+// ---------- الروابط: المساعدة وحقوق البرمجة والروابط الإضافية ----------
+async function renderLinks(loggedIn) {
+  let links = [];
+  try {
+    const { data } = await sb.from('app_links').select('*').eq('active', true).order('sort_order');
+    links = data || [];
+  } catch (e) {}
+  window.khattiHelp = links.filter(l => l.kind === 'help');
+  const extra = loggedIn ? links.filter(l => l.kind === 'extra') : [];
+  const credit = links.find(l => l.kind === 'credit');
+  const footer = $('site-footer');
+  if (!footer) return;
+  footer.innerHTML = [
+    ...extra.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.label)}</a>`),
+    credit ? `<a href="${esc(credit.url)}" target="_blank" rel="noopener">${esc(credit.label)}</a>` : ''
+  ].filter(Boolean).join(' · ');
+}
+
+function toggleHelp() {
+  let el = document.getElementById('help-panel');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'help-panel';
+    el.setAttribute('dir', 'rtl');
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;background:#fff;border-radius:16px 16px 0 0;' +
+      'box-shadow:0 -4px 16px rgba(0,0,0,.15);padding:18px;z-index:9998;display:none;font-family:Tahoma,Arial,sans-serif';
+    document.body.appendChild(el);
+  }
+  const links = window.khattiHelp || [];
+  el.innerHTML = `<div class="row"><b>المساعدة والتواصل</b><button class="sec" id="helpclose">إغلاق</button></div>
+    ${links.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener" style="display:block;padding:12px;margin:6px 0;border:1px solid #e5e7eb;border-radius:10px;text-decoration:none;color:#1f2937">${esc(l.label)}</a>`).join('') || '<p class="muted">لا توجد روابط حالياً</p>'}`;
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+  document.getElementById('helpclose').onclick = () => { el.style.display = 'none'; };
+}
+
 async function start() {
   const p = await getProfile();
+  await renderLinks(!!p);
   if (!p) return authView();
   if (p.role === 'admin') { location.href = 'admin.html'; return; }
   if (!p.governorate) return govPickView(p);
   window.khattiRole = p.role;
-  $('top').innerHTML = `<span>${esc(p.name)}</span> <button class="sec" id="out">خروج</button>`;
+  $('top').innerHTML = `<span>${esc(p.name)}</span> <button class="sec" id="helpbtn">المساعدة</button> <button class="sec" id="out">خروج</button>`;
+  $('helpbtn').onclick = toggleHelp;
   $('out').onclick = async () => { await sb.auth.signOut(); start(); };
   p.role === 'owner' ? ownerView(p) : studentView(p);
 }
@@ -278,6 +315,84 @@ async function uploadRegistration(uid, file) {
   return error ? null : path;
 }
 
+const MAX_DOC = 5242880;
+
+async function uploadDoc(uid, file, tag) {
+  const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+  const path = `${uid}/${tag}-${Date.now()}.${ext}`;
+  const { error } = await sb.storage.from('owner-docs').upload(path, file, { contentType: file.type, upsert: false });
+  return error ? null : path;
+}
+
+function renderOwnerRegistration(p, d) {
+  if (d?.status === 'pending') {
+    $('app').innerHTML = `<div class="card" style="text-align:center">
+      <h2>طلبك قيد المراجعة</h2>
+      <p class="muted">تم استلام بياناتك. الإدارة تراجعها، وستفتح لك الصفحة بعد الموافقة.</p></div>`;
+    return;
+  }
+  const v = k => esc(d?.[k] || '');
+  $('app').innerHTML = `<div class="card"><h2>${d?.status === 'rejected' ? 'تم رفض البيانات' : 'بيانات صاحب الخط'}</h2>
+    ${d?.status === 'rejected' ? `<p class="err">سبب الرفض: ${esc(d.reject_reason || 'لم يُذكر')}. عدّل البيانات وأعد الإرسال.</p>` : ''}
+    <p class="muted">الاسم لازم يكون مطابق للهوية تماماً.</p>
+    <input id="fn" placeholder="الاسم الثلاثي (كما في الهوية)" value="${v('full_name')}">
+    <input id="nid" placeholder="رقم البطاقة الموحدة" dir="ltr" inputmode="numeric" value="${v('national_id')}">
+    <input id="cp" placeholder="رقم لوحة السيارة" dir="ltr" value="${v('car_plate')}">
+    <input id="cn" placeholder="اسم السيارة (مثال: هايس أبيض)" value="${v('car_name')}">
+    <input id="cmo" placeholder="موديل السيارة (مثال: 2018)" dir="ltr" inputmode="numeric" value="${v('car_model')}">
+    <input id="pt" placeholder="عدد الركاب الكلي (مثال: 18)" dir="ltr" inputmode="numeric" value="${d?.passengers_total || ''}">
+    <p class="muted">البطاقة الموحدة: وجه ${d?.id_front_path ? '(مرفوعة سابقاً)' : ''}</p>
+    <input id="idf" type="file" accept="image/*">
+    <p class="muted">البطاقة الموحدة: ظهر ${d?.id_back_path ? '(مرفوعة سابقاً)' : ''}</p>
+    <input id="idb" type="file" accept="image/*">
+    <p class="muted">سنوية السيارة (إجازة تسجيل المركبة): وجه ${d?.registration_path ? '(مرفوعة سابقاً)' : ''}</p>
+    <input id="rgf" type="file" accept="image/*">
+    <p class="muted">سنوية السيارة (إجازة تسجيل المركبة): ظهر ${d?.reg_back_path ? '(مرفوعة سابقاً)' : ''}</p>
+    <input id="rgb" type="file" accept="image/*">
+    <button id="savedet">إرسال للمراجعة</button><div id="dmsg" class="msg"></div></div>`;
+
+  $('savedet').onclick = async () => {
+    const full = $('fn').value.trim().replace(/\s+/g, ' ');
+    const nid = $('nid').value.trim();
+    const plate = $('cp').value.trim();
+    const carName = $('cn').value.trim();
+    const model = $('cmo').value.trim();
+    const pass = +$('pt').value;
+    if (full.split(' ').length < 3) return msg($('dmsg'), 'اكتب الاسم الثلاثي كاملاً');
+    if (!/^[0-9]{6,20}$/.test(nid)) return msg($('dmsg'), 'رقم البطاقة الموحدة أرقام فقط');
+    if (plate.length < 3) return msg($('dmsg'), 'أدخل رقم لوحة السيارة');
+    if (!carName) return msg($('dmsg'), 'أدخل اسم السيارة');
+    if (!/^(19|20)[0-9]{2}$/.test(model)) return msg($('dmsg'), 'موديل السيارة لازم يكون سنة مثل 2018');
+    if (!(pass >= 1 && pass <= 100)) return msg($('dmsg'), 'عدد الركاب لازم يكون بين 1 و 100');
+
+    const map = { idf: 'id_front_path', idb: 'id_back_path', rgf: 'registration_path', rgb: 'reg_back_path' };
+    for (const inputId of Object.keys(map)) {
+      const f = $(inputId).files[0];
+      if (f && (!f.type.startsWith('image/') || f.size > MAX_DOC))
+        return msg($('dmsg'), 'كل صورة لازم تكون صورة، وأقصى حجم 5 ميغابايت');
+    }
+
+    const row = { owner_id: p.id, full_name: full, national_id: nid, car_plate: plate,
+      car_name: carName, car_model: model, passengers_total: pass };
+    for (const [inputId, col] of Object.entries(map)) {
+      const f = $(inputId).files[0];
+      if (f) {
+        const path = await uploadDoc(p.id, f, inputId);
+        if (!path) return msg($('dmsg'), 'تعذر رفع إحدى الصور، حاول مرة ثانية');
+        row[col] = path;
+      }
+    }
+    const missing = Object.values(map).some(col => !row[col] && !d?.[col]);
+    if (missing) return msg($('dmsg'), 'ارفع الصور الأربع (هوية وجه وظهر، وسنوية وجه وظهر)');
+
+    const { error } = d
+      ? await sb.from('owner_details').update(row).eq('owner_id', p.id)
+      : await sb.from('owner_details').insert(row);
+    if (error) msg($('dmsg'), 'تعذر الإرسال، تأكد من البيانات وحاول مرة ثانية');
+    else start();
+  };
+}
+
 async function ownerView(p) {
   const [sub, prices, details, lines, incoming] = await Promise.all([
     sb.from('subscriptions').select('end_date').eq('owner_id', p.id).maybeSingle(),
@@ -334,6 +449,7 @@ async function ownerView(p) {
 
   const approved = d?.status === 'approved';
 
+  if (!approved) return renderOwnerRegistration(p, d);
   $('app').innerHTML = banner + subCard + regCard +
    (approved && active ? `<div class="card"><h2>إضافة خط</h2>
      <input id="ln" placeholder="اسم الخط"><input id="lc" placeholder="اسم السيارة (مثال: هايس أبيض)"><input id="ld" placeholder="الوجهة">
@@ -412,31 +528,6 @@ async function ownerView(p) {
     const { error } = await sb.rpc('redeem_code', { p_code: $('code').value });
     if (error) msg($('msg'), 'كود التفعيل غير صالح أو مستخدم أو منتهي. تواصل مع إدارة التطبيق.');
     else { msg($('msg'), 'تم التفعيل بنجاح', true); setTimeout(start, 500); }
-  };
-
-  $('savedet').onclick = async () => {
-    const full = $('fn').value.trim().replace(/\s+/g, ' ');
-    const nid = $('nid').value.trim();
-    const plate = $('cp').value.trim();
-    const file = $('reg').files[0];
-    if (full.split(' ').length < 3) return msg($('dmsg'), 'اكتب الاسم الثلاثي كاملاً');
-    if (!/^[0-9]{6,20}$/.test(nid)) return msg($('dmsg'), 'رقم البطاقة الموحدة أرقام فقط');
-    if (plate.length < 3) return msg($('dmsg'), 'أدخل رقم لوحة السيارة');
-    if (file && (!ALLOWED_DOCS.includes(file.type) || file.size > 5242880))
-      return msg($('dmsg'), 'الملف لازم يكون صورة أو PDF، وأقصى حجم 5 ميغابايت');
-    if (!file && !d?.registration_path) return msg($('dmsg'), 'ارفع إجازة تسجيل المركبة');
-
-    let path = d?.registration_path || null;
-    if (file) {
-      path = await uploadRegistration(p.id, file);
-      if (!path) return msg($('dmsg'), 'تعذر رفع الملف، حاول مرة ثانية');
-    }
-    const row = { owner_id: p.id, full_name: full, national_id: nid, car_plate: plate, registration_path: path };
-    const { error } = d
-      ? await sb.from('owner_details').update(row).eq('owner_id', p.id)
-      : await sb.from('owner_details').insert(row);
-    if (error) msg($('dmsg'), 'تعذر الإرسال، تأكد من البيانات وحاول مرة ثانية');
-    else start();
   };
 
   if (approved && active) $('addline').onclick = async () => {
