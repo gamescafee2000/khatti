@@ -121,6 +121,51 @@
   }
 
   // ---------- التحميل والأحداث ----------
+  const KIND = { help: 'المساعدة والتواصل', extra: 'رابط إضافي', credit: 'حقوق البرمجة' };
+  const linkRow = l => `<div class="row" style="border-bottom:1px solid #eee;padding:6px 0">
+    <span><b>${esc(l.label)}</b> <span class="muted">(${KIND[l.kind]})</span><br><span class="muted" dir="ltr">${esc(l.url)}</span></span>
+    <span><button class="sec" data-lk-toggle="${l.id}" data-on="${l.active ? 0 : 1}">${l.active ? 'إخفاء' : 'إظهار'}</button>
+    <button class="sec" data-lk-edit="${l.id}">تعديل</button>
+    <button class="bad" data-lk-del="${l.id}">حذف</button></span></div>`;
+  const linksCard = links => `<div class="card"><h2>الروابط</h2>
+    <p class="muted">المساعدة والتواصل يظهر بزر المساعدة. الرابط الإضافي يظهر لكل الحسابات. حقوق البرمجة تظهر أسفل الصفحة.</p>
+    <select id="lk-kind"><option value="help">المساعدة والتواصل</option><option value="extra">رابط إضافي</option><option value="credit">حقوق البرمجة</option></select>
+    <input id="lk-label" placeholder="الاسم (مثال: إنستغرام)">
+    <input id="lk-url" placeholder="الرابط (https://...)" dir="ltr">
+    <button id="lk-add">إضافة رابط</button>
+    <div id="lk-msg" class="msg"></div>
+    <hr>
+    ${links.map(linkRow).join('') || '<p class="muted">لا توجد روابط</p>'}</div>`;
+
+  const bindLinks = (container, links) => {
+    container.querySelector('#lk-add').onclick = async () => {
+      const label = document.getElementById('lk-label').value.trim();
+      const url = document.getElementById('lk-url').value.trim();
+      const kind = document.getElementById('lk-kind').value;
+      const msg = document.getElementById('lk-msg');
+      if (!label || !/^https?:\/\//.test(url)) { msg.className = 'msg err'; msg.textContent = 'اكتب الاسم ورابط يبدأ بـ https://'; return; }
+      const { error } = await sb.from('app_links').insert({ kind, label, url, sort_order: links.length + 1 });
+      if (error) { msg.className = 'msg err'; msg.textContent = 'تعذر الإضافة'; } else window.load();
+    };
+    container.querySelectorAll('button[data-lk-toggle]').forEach(b => b.onclick = async () => {
+      await sb.from('app_links').update({ active: b.dataset.on === '1' }).eq('id', b.dataset.lkToggle);
+      window.load();
+    });
+    container.querySelectorAll('button[data-lk-edit]').forEach(b => b.onclick = async () => {
+      const l = links.find(x => String(x.id) === b.dataset.lkEdit);
+      const label = prompt('الاسم:', l.label); if (label === null) return;
+      const url = prompt('الرابط (https://...):', l.url); if (url === null) return;
+      if (!label.trim() || !/^https?:\/\//.test(url.trim())) return alert('بيانات غير صحيحة');
+      await sb.from('app_links').update({ label: label.trim(), url: url.trim() }).eq('id', l.id);
+      window.load();
+    });
+    container.querySelectorAll('button[data-lk-del]').forEach(b => b.onclick = async () => {
+      if (!confirm('حذف هذا الرابط؟')) return;
+      await sb.from('app_links').delete().eq('id', b.dataset.lkDel);
+      window.load();
+    });
+  };
+
   window.loadExtra = async function (container) {
     const [profiles, subs, codes, dlog, complaints, reviews, lines, audit, prices] = await Promise.all([
       sb.from('profiles').select('id,role,name,phone,created_at,first_paid_at'),
@@ -158,6 +203,9 @@
     container.querySelectorAll('button[data-close]').forEach(b => b.onclick = async () => {
       await sb.from('complaints').update({ status: 'closed' }).eq('id', b.dataset.close); window.load();
     });
+    const lr = await sb.from('app_links').select('*').order('sort_order');
+    container.insertAdjacentHTML('beforeend', linksCard(lr.data || []));
+    bindLinks(container, lr.data || []);
     container.querySelectorAll('button[data-rv]').forEach(b => b.onclick = async () => {
       const { error } = await sb.from('reviews').update({ hidden: b.dataset.hide === '1' }).eq('id', b.dataset.rv);
       if (error) alert('تعذر التحديث'); else window.load();
