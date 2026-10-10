@@ -8,7 +8,7 @@ const STATUS = { pending: 'بانتظار المراجعة', approved: 'مواف
 
 async function init() {
   const { data: { user } } = await sb.auth.getUser();
-  if (!user) { document.querySelector('main').innerHTML = '<div class="card"><a href="index.html">سجّل دخولك أولاً</a></div>'; return; }
+  if (!user) { document.querySelector('main').innerHTML = '<div class="card"><p class="muted">لازم تسجل دخول كمدير للوصول إلى لوحة الإدارة.</p><button onclick="location.href=\'index.html\'">تسجيل دخول</button></div>'; return; }
   const { data: p } = await sb.from('profiles').select('role').eq('id', user.id).maybeSingle();
   if (p?.role !== 'admin') return deny();
   load();
@@ -38,13 +38,17 @@ async function load() {
   const ownerCard = o => {
     const d = detOf[o.id], end = subOf[o.id];
     const left = end ? Math.ceil((new Date(end).getTime() + 15 * 864e5 - now) / 864e5) : null;
+    const docs = d ? [
+      ['هوية وجه', d.id_front_path], ['هوية ظهر', d.id_back_path],
+      ['سنوية وجه', d.registration_path], ['سنوية ظهر', d.reg_back_path]
+    ].filter(x => x[1]) : [];
     return `<div class="card line">
       <b>${esc(d?.full_name || o.name || 'بدون اسم')}</b> <span class="muted" dir="ltr">${esc(o.email || o.phone || '')}</span>
-      <div class="muted">${d ? `بطاقة: ${esc(d.national_id)} · لوحة: ${esc(d.car_plate)} · الحالة: ${STATUS[d.status]}` : 'لم يرفع بياناته بعد'}</div>
+      <div class="muted">${d ? `بطاقة: ${esc(d.national_id)} · لوحة: ${esc(d.car_plate)} · سيارة: ${esc(d.car_name || '—')} · موديل: ${esc(d.car_model || '—')} · ركاب: ${d.passengers_total ?? '—'} · الحالة: ${STATUS[d.status]}` : 'لم يرفع بياناته بعد'}</div>
       ${d?.status === 'rejected' ? `<div class="muted">سبب الرفض: ${esc(d.reject_reason)}</div>` : ''}
       <div class="muted">الاستحقاق: ${end ? dt(end) : '—'} ${end && new Date(end) < now ? `· يُحذف بعد ${Math.max(left, 0)} يوم` : ''} · ${o.has_paid ? 'دفع سابقاً' : 'لم يدفع بعد'}</div>
       <div class="row">
-        ${d?.registration_path ? `<button class="sec" data-doc="${esc(d.registration_path)}">إجازة المركبة</button>` : ''}
+        ${docs.map(([label, path]) => `<button class="sec" data-doc="${esc(path)}">${label}</button>`).join('')}
         ${d?.status === 'pending' ? `<button data-approve="${o.id}">موافقة</button><button class="bad" data-reject="${o.id}">رفض</button>` : ''}
         ${end ? `<button class="sec" data-ext="${o.id}">تمديد شهر</button>` : ''}
         ${d?.status === 'approved' && sv.telegram_bot_token ? `<button class="sec" data-tg="${o.id}">إرسال إلى تلكرام</button>` : ''}
