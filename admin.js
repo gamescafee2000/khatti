@@ -23,7 +23,7 @@ async function load() {
     sb.from('deletion_log').select('*').order('deleted_at', { ascending: false }).limit(50),
     sb.from('settings').select('key,value').in('key', ['price_first', 'price_renewal']),
     sb.from('offers').select('*').order('id'),
-    sb.from('activation_codes').select('months,used_at,created_at').order('created_at', { ascending: false }),
+    sb.from('activation_codes').select('months,amount,code_plain,subscriber_name,used_at,created_at').order('created_at', { ascending: false }),
     sb.from('admin_secrets').select('key,value')
   ]);
   const P = profs.data || [], S = subs.data || [], D = dets.data || [], C = codes.data || [];
@@ -78,10 +78,13 @@ async function load() {
    <div class="card"><h2>إصدار كود تفعيل</h2>
      <input id="cm" type="number" min="1" value="1" placeholder="عدد الأشهر">
      <input id="cam" type="number" min="0" placeholder="المبلغ المستلم (د.ع)">
+     <input id="csub" placeholder="اسم المشترك (اختياري)">
      <button id="mkcode">إصدار كود</button><div id="cout"></div>
-     <table><tr><th>المدة</th><th>الحالة</th><th>التاريخ</th></tr>
-     ${C.map(c => `<tr><td>${c.months} شهر</td><td>${c.used_at ? 'مستخدم' : 'جديد'}</td><td>${dt(c.created_at)}</td></tr>`).join('')
-       || '<tr><td colspan=3 class="muted">لا أكواد</td></tr>'}</table></div>
+     <table><tr><th>الكود</th><th>المشترك</th><th>المدة</th><th>الحالة</th><th></th></tr>
+     ${C.map(c => `<tr><td dir="ltr"><b>${esc(c.code_plain || '—')}</b></td><td>${esc(c.subscriber_name || '—')}</td>
+       <td>${c.months} شهر</td><td>${c.used_at ? 'مستخدم' : 'جديد'}</td>
+       <td>${c.code_plain ? `<button class="sec" data-copy="${esc(c.code_plain)}">نسخ</button>` : ''}</td></tr>`).join('')
+       || '<tr><td colspan=5 class="muted">لا أكواد</td></tr>'}</table></div>
 
    <div class="card"><h2>العروض للطلاب</h2>
      <input id="ot" placeholder="عنوان العرض"><input id="ob" placeholder="التفاصيل">
@@ -106,19 +109,18 @@ async function load() {
   $('mkcode').onclick = async () => {
     const months = +$('cm').value;
     if (!(months > 0)) return;
-    const alpha = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    const bytes = crypto.getRandomValues(new Uint8Array(12));
-    let s = ''; for (const b of bytes) s += alpha[b % alpha.length];
-    const code = s.slice(0, 4) + '-' + s.slice(4, 8) + '-' + s.slice(8, 12);
-    const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(code)))]
-      .map(b => b.toString(16).padStart(2, '0')).join('');
-    const amount = +$('cam').value;
-    const { error } = await sb.from('activation_codes').insert({ code_hash: hash, months, amount: amount > 0 ? amount : null });
+    const amount = +$('cam').value || 0;
+    const subscriber = $('csub').value.trim();
+    const { data: code, error } = await sb.rpc('admin_create_code', { p_months: months, p_amount: amount, p_subscriber: subscriber });
     $('cout').innerHTML = error ? '<p class="err">تعذر إصدار الكود</p>'
-      : `<p>الكود (يظهر مرة واحدة، انسخه الآن):</p><div class="code">${code}</div>`;
+      : `<p>تم إصدار الكود:</p><div class="code">${esc(code)}</div>`;
     if (!error) load();
   };
 
+  document.querySelectorAll('button[data-copy]').forEach(b => b.onclick = async () => {
+    try { await navigator.clipboard.writeText(b.dataset.copy); b.textContent = 'تم'; }
+    catch (e) { prompt('انسخ الكود:', b.dataset.copy); }
+  });
   document.querySelectorAll('button[data-approve]').forEach(b => b.onclick = async () => {
     if (!confirm('الموافقة على هذا الحساب؟')) return;
     const { error } = await sb.rpc('admin_review_owner', { p_owner: b.dataset.approve, p_approve: true, p_reason: null });
